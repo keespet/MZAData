@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
     const BATCH_SIZE = 500
     for (let i = 0; i < parsedRelaties.length; i += BATCH_SIZE) {
       const batch = parsedRelaties.slice(i, i + BATCH_SIZE)
-      const { error: insertError } = await supabase.from('relaties').insert(batch)
+      const { error: insertError } = await serviceClient.from('relaties').insert(batch)
 
       if (insertError) {
         throw new Error(`Fout bij invoegen relaties (batch ${i}): ${insertError.message}`)
@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
 
     // Update sync log with duration
     if (syncLog) {
-      await supabase
+      await serviceClient
         .from('sync_log')
         .update({ sync_duur_seconden: duurSeconden })
         .eq('id', syncLog.id)
