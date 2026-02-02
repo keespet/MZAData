@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { parsePolissenCsv } from '@/lib/csv/parse-polissen'
 
 export async function POST(request: NextRequest) {
@@ -14,8 +14,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Niet geauthenticeerd' }, { status: 401 })
     }
 
-    // Check role
-    const { data: profile } = await supabase
+    // Use service client for database operations (bypasses RLS)
+    const serviceClient = await createServiceClient()
+
+    // Check role using service client
+    const { data: profile } = await serviceClient
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -47,7 +50,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get existing counts for comparison
-    const { count: existingPolissenCount } = await supabase
+    const { count: existingPolissenCount } = await serviceClient
       .from('polissen')
       .select('*', { count: 'exact', head: true })
 
@@ -55,7 +58,7 @@ export async function POST(request: NextRequest) {
     const newCount = polissen.length
 
     // Create sync log entry
-    const { data: syncLog, error: syncLogError } = await supabase
+    const { data: syncLog, error: syncLogError } = await serviceClient
       .from('sync_log')
       .insert({
         tabel_naam: 'polissen',
@@ -76,9 +79,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Delete existing data (in correct order due to foreign keys)
-    await supabase.from('polis_dekkingen').delete().neq('id', 0)
-    await supabase.from('polissen').delete().neq('id', '')
-    await supabase.from('pakketten').delete().neq('id', '')
+    await serviceClient.from('polis_dekkingen').delete().neq('id', 0)
+    await serviceClient.from('polissen').delete().neq('id', '')
+    await serviceClient.from('pakketten').delete().neq('id', '')
 
     // Insert pakketten first (polissen reference them)
     const BATCH_SIZE = 500
@@ -86,7 +89,7 @@ export async function POST(request: NextRequest) {
     if (pakketten.length > 0) {
       for (let i = 0; i < pakketten.length; i += BATCH_SIZE) {
         const batch = pakketten.slice(i, i + BATCH_SIZE)
-        const { error: insertError } = await supabase.from('pakketten').insert(batch)
+        const { error: insertError } = await serviceClient.from('pakketten').insert(batch)
         if (insertError) {
           console.error(`Pakket insert error (batch ${i}):`, insertError)
         }
@@ -96,7 +99,7 @@ export async function POST(request: NextRequest) {
     // Insert polissen
     for (let i = 0; i < polissen.length; i += BATCH_SIZE) {
       const batch = polissen.slice(i, i + BATCH_SIZE)
-      const { error: insertError } = await supabase.from('polissen').insert(batch)
+      const { error: insertError } = await serviceClient.from('polissen').insert(batch)
       if (insertError) {
         throw new Error(`Fout bij invoegen polissen (batch ${i}): ${insertError.message}`)
       }
@@ -106,7 +109,7 @@ export async function POST(request: NextRequest) {
     if (dekkingen.length > 0) {
       for (let i = 0; i < dekkingen.length; i += BATCH_SIZE) {
         const batch = dekkingen.slice(i, i + BATCH_SIZE)
-        const { error: insertError } = await supabase.from('polis_dekkingen').insert(batch)
+        const { error: insertError } = await serviceClient.from('polis_dekkingen').insert(batch)
         if (insertError) {
           console.error(`Dekking insert error (batch ${i}):`, insertError)
         }
@@ -117,7 +120,7 @@ export async function POST(request: NextRequest) {
 
     // Update sync log with duration
     if (syncLog) {
-      await supabase
+      await serviceClient
         .from('sync_log')
         .update({ sync_duur_seconden: duurSeconden })
         .eq('id', syncLog.id)

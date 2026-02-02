@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { parseRelatiesZakelijkCsv } from '@/lib/csv/parse-relaties-zakelijk'
 import { compareRelaties } from '@/lib/csv/parse-relaties-particulier'
 import type { Relatie } from '@/lib/types/database'
@@ -16,8 +16,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Niet geauthenticeerd' }, { status: 401 })
     }
 
-    // Check role
-    const { data: profile } = await supabase
+    // Use service client for database operations (bypasses RLS)
+    const serviceClient = await createServiceClient()
+
+    // Check role using service client
+    const { data: profile } = await serviceClient
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -49,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get existing zakelijk relaties
-    const { data: existingRelaties, error: fetchError } = await supabase
+    const { data: existingRelaties, error: fetchError } = await serviceClient
       .from('relaties')
       .select('*')
       .eq('relatie_type', 'zakelijk')
@@ -65,7 +68,7 @@ export async function POST(request: NextRequest) {
     )
 
     // Create sync log entry
-    const { data: syncLog, error: syncLogError } = await supabase
+    const { data: syncLog, error: syncLogError } = await serviceClient
       .from('sync_log')
       .insert({
         tabel_naam: 'relaties_zakelijk',
@@ -115,12 +118,12 @@ export async function POST(request: NextRequest) {
       ]
 
       if (wijzigingen.length > 0) {
-        await supabase.from('sync_wijzigingen').insert(wijzigingen)
+        await serviceClient.from('sync_wijzigingen').insert(wijzigingen)
       }
     }
 
     // Delete all existing zakelijk relaties
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await serviceClient
       .from('relaties')
       .delete()
       .eq('relatie_type', 'zakelijk')
@@ -133,7 +136,7 @@ export async function POST(request: NextRequest) {
     const BATCH_SIZE = 500
     for (let i = 0; i < parsedRelaties.length; i += BATCH_SIZE) {
       const batch = parsedRelaties.slice(i, i + BATCH_SIZE)
-      const { error: insertError } = await supabase.from('relaties').insert(batch)
+      const { error: insertError } = await serviceClient.from('relaties').insert(batch)
 
       if (insertError) {
         throw new Error(`Fout bij invoegen relaties (batch ${i}): ${insertError.message}`)
@@ -144,7 +147,7 @@ export async function POST(request: NextRequest) {
 
     // Update sync log with duration
     if (syncLog) {
-      await supabase
+      await serviceClient
         .from('sync_log')
         .update({ sync_duur_seconden: duurSeconden })
         .eq('id', syncLog.id)
