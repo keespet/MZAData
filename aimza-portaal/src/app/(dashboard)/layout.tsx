@@ -18,17 +18,26 @@ export default async function DashboardLayout({
   }
 
   // Use service client to bypass RLS for profile operations
-  const serviceClient = await createServiceClient()
+  let serviceClient
+  try {
+    serviceClient = await createServiceClient()
+  } catch (e) {
+    console.error('Failed to create service client:', e)
+    // Service client failed - likely missing SUPABASE_SERVICE_ROLE_KEY
+    // Sign out and redirect with error
+    await supabase.auth.signOut()
+    redirect('/login?error=profile_creation_failed')
+  }
 
   // Try to get existing profile
-  let { data: profile } = await serviceClient
+  let { data: profile, error: fetchError } = await serviceClient
     .from('profiles')
     .select('*')
     .eq('id', user.id)
     .single()
 
   // If no profile exists, create one automatically
-  if (!profile) {
+  if (!profile && !fetchError?.message?.includes('multiple')) {
     const { data: newProfile, error: insertError } = await serviceClient
       .from('profiles')
       .insert({
@@ -43,6 +52,8 @@ export default async function DashboardLayout({
 
     if (insertError) {
       console.error('Failed to create profile:', insertError)
+      // Sign out to prevent redirect loop, then redirect with error
+      await supabase.auth.signOut()
       redirect('/login?error=profile_creation_failed')
     }
 
@@ -50,6 +61,8 @@ export default async function DashboardLayout({
   }
 
   if (!profile) {
+    console.error('No profile found and could not create one')
+    await supabase.auth.signOut()
     redirect('/login?error=no_profile')
   }
 

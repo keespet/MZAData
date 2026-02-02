@@ -61,8 +61,12 @@ export async function updateSession(request: NextRequest) {
     return redirectResponse
   }
 
-  if (user && request.nextUrl.pathname === '/login') {
-    // User is logged in but on login page, redirect to dashboard
+  // Only redirect logged-in users from /login to /dashboard if there's no error
+  // If there's an error query param, the user needs to see the error message
+  const hasErrorParam = request.nextUrl.searchParams.has('error')
+
+  if (user && request.nextUrl.pathname === '/login' && !hasErrorParam) {
+    // User is logged in but on login page (without error), redirect to dashboard
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     const redirectResponse = NextResponse.redirect(url)

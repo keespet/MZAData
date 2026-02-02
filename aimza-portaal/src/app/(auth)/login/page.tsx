@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,8 +11,16 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Loader2, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 
+// Error messages for URL error codes
+const errorMessages: Record<string, string> = {
+  profile_creation_failed: 'Er kon geen gebruikersprofiel worden aangemaakt. Neem contact op met de beheerder.',
+  no_profile: 'Geen gebruikersprofiel gevonden. Neem contact op met de beheerder.',
+  auth_callback_error: 'Er ging iets mis bij het inloggen. Probeer het opnieuw.',
+}
+
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
 
   const [email, setEmail] = useState('')
@@ -21,6 +29,19 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [showReset, setShowReset] = useState(false)
   const [resetSent, setResetSent] = useState(false)
+
+  // Handle error from URL and sign out to prevent redirect loop
+  useEffect(() => {
+    const errorCode = searchParams.get('error')
+    if (errorCode) {
+      // Sign out to break the redirect loop
+      supabase.auth.signOut().then(() => {
+        setError(errorMessages[errorCode] || 'Er is een fout opgetreden.')
+        // Clean up URL
+        router.replace('/login')
+      })
+    }
+  }, [searchParams, supabase.auth, router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
