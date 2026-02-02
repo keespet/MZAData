@@ -3,6 +3,7 @@
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -36,6 +37,9 @@ export function CsvPreview({
       <DialogContent className="max-w-4xl max-h-[80vh]">
         <DialogHeader>
           <DialogTitle>{title} - Preview (eerste 10 rijen)</DialogTitle>
+          <DialogDescription>
+            Bekijk de eerste rijen van het CSV-bestand voordat u importeert.
+          </DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="h-[500px]">
