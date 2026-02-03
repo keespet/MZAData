@@ -8,6 +8,7 @@ import { ShieldAlert } from 'lucide-react'
 import { DropZone } from '@/components/upload/DropZone'
 import { CsvPreview } from '@/components/upload/CsvPreview'
 import { ImportProgress, ImportStatus, ImportResult } from '@/components/upload/ImportProgress'
+import { useBatchImport, type BatchImportStatus } from '@/hooks/useBatchImport'
 import toast from 'react-hot-toast'
 
 type VariantType = 'particulier' | 'zakelijk' | 'polissen'
@@ -17,14 +18,23 @@ interface FileState {
   preview: { headers: string[]; rows: string[][] } | null
 }
 
-interface ImportState {
-  status: ImportStatus
-  result: ImportResult | null
-}
+// Convert batch import status to ImportProgress status
+function toImportStatus(batchStatus: BatchImportStatus): ImportStatus {
+  const phaseMap: Record<string, ImportStatus['phase']> = {
+    idle: 'idle',
+    parsing: 'reading',
+    starting: 'processing',
+    uploading: 'saving',
+    finishing: 'saving',
+    done: 'done',
+    error: 'error',
+  }
 
-const initialImportState: ImportState = {
-  status: { phase: 'idle', progress: 0, message: '' },
-  result: null,
+  return {
+    phase: phaseMap[batchStatus.phase] || 'idle',
+    progress: batchStatus.progress,
+    message: batchStatus.message,
+  }
 }
 
 export default function UploadPage() {
@@ -34,18 +44,19 @@ export default function UploadPage() {
     polissen: { file: null, preview: null },
   })
 
-  const [imports, setImports] = useState<Record<VariantType, ImportState>>({
-    particulier: initialImportState,
-    zakelijk: initialImportState,
-    polissen: initialImportState,
-  })
+  const [activeVariant, setActiveVariant] = useState<VariantType | null>(null)
 
   const [previewModal, setPreviewModal] = useState<{
     isOpen: boolean
     variant: VariantType | null
   }>({ isOpen: false, variant: null })
 
+  const { status: batchStatus, result: batchResult, importFile, isImporting } = useBatchImport()
+
   const handleFileSelect = useCallback((variant: VariantType, file: File) => {
+    // Detect delimiter based on variant
+    const delimiter = variant === 'polissen' ? ',' : ';'
+
     // Parse CSV for preview
     const reader = new FileReader()
     reader.onload = (e) => {
@@ -53,7 +64,8 @@ export default function UploadPage() {
       const result = Papa.parse(content, {
         header: false,
         preview: 11, // Headers + 10 rows
-        delimiter: variant === 'polissen' ? ',' : '\t',
+        delimiter,
+        quoteChar: '"',
       })
 
       const headers = result.data[0] as string[]
@@ -78,94 +90,37 @@ export default function UploadPage() {
     const file = files[variant].file
     if (!file) return
 
-    const apiEndpoints: Record<VariantType, string> = {
-      particulier: '/api/import/relaties-particulier',
-      zakelijk: '/api/import/relaties-zakelijk',
-      polissen: '/api/import/polissen',
-    }
+    setActiveVariant(variant)
 
     try {
-      // Update status to reading
-      setImports((prev) => ({
-        ...prev,
-        [variant]: {
-          status: { phase: 'reading', progress: 10, message: 'Bestand lezen...' },
-          result: null,
-        },
-      }))
+      const result = await importFile(file, variant)
 
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('fileName', file.name)
-
-      // Update status to processing
-      setImports((prev) => ({
-        ...prev,
-        [variant]: {
-          status: { phase: 'processing', progress: 30, message: 'Data verwerken...' },
-          result: null,
-        },
-      }))
-
-      const response = await fetch(apiEndpoints[variant], {
-        method: 'POST',
-        body: formData,
-      })
-
-      // Update status to saving
-      setImports((prev) => ({
-        ...prev,
-        [variant]: {
-          status: { phase: 'saving', progress: 70, message: 'Opslaan in database...' },
-          result: null,
-        },
-      }))
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Import mislukt')
+      if (result.success) {
+        toast.success(
+          `Import ${variant} succesvol: ${result.totaal.toLocaleString('nl-NL')} records in ${result.duur_seconden.toFixed(1)}s`
+        )
+      } else {
+        toast.error(`Import ${variant} mislukt: ${result.error}`)
       }
-
-      // Success
-      setImports((prev) => ({
-        ...prev,
-        [variant]: {
-          status: { phase: 'done', progress: 100, message: 'Import voltooid!' },
-          result: {
-            totaal: data.totaal,
-            nieuw: data.nieuw,
-            gewijzigd: data.gewijzigd,
-            verwijderd: data.verwijderd,
-            ongewijzigd: data.ongewijzigd,
-            duur_seconden: data.duur_seconden,
-          },
-        },
-      }))
-
-      toast.success(`Import ${variant} succesvol: ${data.totaal} records`)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Onbekende fout'
-
-      setImports((prev) => ({
-        ...prev,
-        [variant]: {
-          status: { phase: 'error', progress: 0, message: errorMessage },
-          result: { totaal: 0, nieuw: 0, gewijzigd: 0, verwijderd: 0, ongewijzigd: 0, duur_seconden: 0, error: errorMessage },
-        },
-      }))
-
       toast.error(`Import ${variant} mislukt: ${errorMessage}`)
     }
-  }, [files])
+  }, [files, importFile])
 
-  const isImporting = Object.values(imports).some(
-    (i) => !['idle', 'done', 'error'].includes(i.status.phase)
-  )
-
-  const activeImports = Object.entries(imports).filter(
-    ([_, i]) => i.status.phase !== 'idle'
-  ) as [VariantType, ImportState][]
+  // Convert batch status to ImportResult for display
+  const getImportResult = (): ImportResult | null => {
+    if (!batchResult) return null
+    return {
+      totaal: batchResult.totaal,
+      nieuw: batchResult.totaal, // All are "new" in batch import
+      gewijzigd: 0,
+      verwijderd: 0,
+      ongewijzigd: 0,
+      duur_seconden: batchResult.duur_seconden,
+      error: batchResult.error,
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -178,7 +133,8 @@ export default function UploadPage() {
             <ShieldAlert className="h-4 w-4" />
             <AlertDescription>
               Importeer CSV-exports uit het legacy COBOL-systeem. Bestaande data
-              van hetzelfde type wordt volledig vervangen.
+              van hetzelfde type wordt volledig vervangen. Grote bestanden worden
+              automatisch in batches verwerkt.
             </AlertDescription>
           </Alert>
 
@@ -219,18 +175,35 @@ export default function UploadPage() {
         </CardContent>
       </Card>
 
-      {/* Import Progress Cards */}
-      {activeImports.length > 0 && (
-        <div className="space-y-4">
-          {activeImports.map(([variant, state]) => (
-            <ImportProgress
-              key={variant}
-              variant={variant}
-              status={state.status}
-              result={state.result}
-            />
-          ))}
-        </div>
+      {/* Import Progress */}
+      {activeVariant && batchStatus.phase !== 'idle' && (
+        <ImportProgress
+          variant={activeVariant}
+          status={toImportStatus(batchStatus)}
+          result={getImportResult()}
+        />
+      )}
+
+      {/* Batch Progress Details */}
+      {isImporting && batchStatus.totalBatches > 0 && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <div className="flex justify-between">
+                <span>Records verwerkt:</span>
+                <span className="font-mono">
+                  {batchStatus.recordsProcessed.toLocaleString('nl-NL')} / {batchStatus.totalRecords.toLocaleString('nl-NL')}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Batches verstuurd:</span>
+                <span className="font-mono">
+                  {batchStatus.batchesSent} / {batchStatus.totalBatches}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Preview Modal */}

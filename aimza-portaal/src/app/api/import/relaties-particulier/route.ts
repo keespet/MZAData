@@ -5,8 +5,10 @@ import type { Relatie } from '@/lib/types/database'
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
+  console.log('[particulier-import] Start import')
 
   try {
+    console.log('[particulier-import] Creating supabase client...')
     const supabase = await createClient()
 
     // Check authentication
@@ -16,7 +18,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Use service client for database operations (bypasses RLS)
+    console.log('[particulier-import] Creating service client...')
     const serviceClient = await createServiceClient()
+    console.log('[particulier-import] Service client created')
 
     // Check role using service client
     const { data: profile } = await serviceClient
@@ -40,18 +44,25 @@ export async function POST(request: NextRequest) {
 
     // Read file content
     const arrayBuffer = await file.arrayBuffer()
-    // Decode as latin-1
     const decoder = new TextDecoder('iso-8859-1')
-    const csvContent = decoder.decode(arrayBuffer)
+    let csvContent = decoder.decode(arrayBuffer)
+
+    // Remove BOM if present (UTF-8 BOM decoded as ISO-8859-1 becomes ï»¿)
+    if (csvContent.startsWith('\ufeff') || csvContent.startsWith('ï»¿')) {
+      csvContent = csvContent.slice(csvContent.startsWith('ï»¿') ? 3 : 1)
+    }
 
     // Parse CSV
+    console.log('[particulier-import] Parsing CSV...')
     const { relaties: parsedRelaties, errors: parseErrors } = parseRelatiesParticulierCsv(csvContent)
+    console.log(`[particulier-import] Parsed ${parsedRelaties.length} relaties`)
 
     if (parseErrors.length > 0) {
       console.error('CSV parse errors:', parseErrors)
     }
 
     // Get existing particulier relaties
+    console.log('[particulier-import] Fetching existing relaties...')
     const { data: existingRelaties, error: fetchError } = await serviceClient
       .from('relaties')
       .select('*')

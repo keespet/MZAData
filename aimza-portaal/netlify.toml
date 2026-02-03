@@ -1,0 +1,9 @@
+[functions]
+  # Increase function timeout and size for large CSV imports
+  node_bundler = "esbuild"
+
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    # Allow larger request bodies
+    Access-Control-Allow-Origin = "*"

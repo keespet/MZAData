@@ -16,10 +16,11 @@ export function parseRelatiesParticulierCsv(
 ): { relaties: Partial<Relatie>[]; errors: string[] } {
   const errors: string[] = []
 
-  // Parse CSV with tab delimiter
+  // Parse CSV with semicolon delimiter (COBOL export format)
   const result = Papa.parse<RawRow>(csvContent, {
     header: true,
-    delimiter: '\t',
+    delimiter: ';',
+    quoteChar: '"',
     skipEmptyLines: true,
     transformHeader: (header) => header.trim(),
   })

@@ -12,6 +12,7 @@ import {
   LogOut,
   Menu,
   X,
+  Target,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
   { href: '/relaties', label: 'Relaties', icon: Users },
   { href: '/polissen', label: 'Polissen', icon: FileText },
   { href: '/mutaties', label: 'Mutaties', icon: History },
+  { href: '/strategie', label: 'Strategie', icon: Target },
   { href: '/gebruikers', label: 'Gebruikers', icon: UserCog, roles: ['admin'] },
 ]
 

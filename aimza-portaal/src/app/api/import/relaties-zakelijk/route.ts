@@ -42,7 +42,21 @@ export async function POST(request: NextRequest) {
     // Read file content
     const arrayBuffer = await file.arrayBuffer()
     const decoder = new TextDecoder('iso-8859-1')
-    const csvContent = decoder.decode(arrayBuffer)
+    let csvContent = decoder.decode(arrayBuffer)
+
+    // Remove BOM if present (UTF-8 BOM decoded as ISO-8859-1 becomes ï»¿)
+    if (csvContent.startsWith('\ufeff') || csvContent.startsWith('ï»¿')) {
+      csvContent = csvContent.slice(csvContent.startsWith('ï»¿') ? 3 : 1)
+    }
+
+    // Debug: log first line and character codes
+    const firstLine = csvContent.split('\n')[0]
+    console.log('CSV debug:', {
+      fileSize: arrayBuffer.byteLength,
+      firstLineLength: firstLine.length,
+      firstLinePreview: firstLine.slice(0, 200),
+      firstCharCodes: Array.from(firstLine.slice(0, 10)).map(c => c.charCodeAt(0)),
+    })
 
     // Parse CSV
     const { relaties: parsedRelaties, errors: parseErrors } = parseRelatiesZakelijkCsv(csvContent)
